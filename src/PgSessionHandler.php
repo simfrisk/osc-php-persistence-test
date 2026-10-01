@@ -22,12 +22,18 @@ use SessionUpdateTimestampHandlerInterface;
  * SessionUpdateTimestampHandlerInterface makes session.use_strict_mode work
  * (unknown session ids from a client are rejected and replaced) and lets
  * session.lazy_write skip rewriting unchanged data.
- * No row locking: two parallel requests with the same session can overwrite
- * each other's changes (last write wins). The default file handler locks.
+ * Locking: like PHP's file handler, a request holds a lock on its session
+ * from session_start() until the session is written and closed, so parallel
+ * requests (AJAX) for the same user cannot overwrite each other's changes.
+ * It uses a Postgres advisory lock, which Postgres also releases by itself
+ * if the PHP process dies and the connection drops.
+ * Call session_write_close() early in long requests to release the lock.
  */
 final class PgSessionHandler implements SessionHandlerInterface, SessionUpdateTimestampHandlerInterface
 {
-    public function __construct(private PDO $pdo, private int $lifetime = 86400)
+    private ?string $lockedId = null;
+
+    public function __construct(private PDO $pdo, private int $lifetime = 86400, private bool $locking = true)
     {
     }
 
@@ -38,11 +44,34 @@ final class PgSessionHandler implements SessionHandlerInterface, SessionUpdateTi
 
     public function close(): bool
     {
+        $this->unlock();
         return true;
+    }
+
+    private function lock(string $id): void
+    {
+        if (!$this->locking || $this->lockedId === $id) {
+            return;
+        }
+        $this->unlock();
+        $stmt = $this->pdo->prepare('SELECT pg_advisory_lock(hashtextextended(:id, 0))');
+        $stmt->execute([':id' => $id]);
+        $this->lockedId = $id;
+    }
+
+    private function unlock(): void
+    {
+        if ($this->lockedId === null) {
+            return;
+        }
+        $stmt = $this->pdo->prepare('SELECT pg_advisory_unlock(hashtextextended(:id, 0))');
+        $stmt->execute([':id' => $this->lockedId]);
+        $this->lockedId = null;
     }
 
     public function read(string $id): string|false
     {
+        $this->lock($id);
         $stmt = $this->pdo->prepare('SELECT data FROM php_sessions WHERE id = :id AND expires_at > now()');
         $stmt->execute([':id' => $id]);
         $data = $stmt->fetchColumn();
@@ -68,6 +97,7 @@ final class PgSessionHandler implements SessionHandlerInterface, SessionUpdateTi
 
     public function destroy(string $id): bool
     {
+        $this->unlock();
         $stmt = $this->pdo->prepare('DELETE FROM php_sessions WHERE id = :id');
         return $stmt->execute([':id' => $id]);
     }

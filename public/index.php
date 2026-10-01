@@ -54,6 +54,9 @@ function start_backend_session(string $backend): void
             ini_set('session.gc_maxlifetime', '86400');
             // phpredis does not lock sessions by default. Turn it on if parallel requests write the session.
             ini_set('redis.session.locking_enabled', '1');
+            // Default lock wait is 100 retries x 20 ms = 2 s, after which the request runs WITHOUT the lock.
+            ini_set('redis.session.lock_retries', '300');
+            ini_set('redis.session.lock_wait_time', '50000');
             session_cookie('VKSESS');
             break;
         case 'ini':
@@ -120,6 +123,7 @@ try {
             'served_by_host' => gethostname(),
             'strict_mode' => ini_get('session.use_strict_mode'),
             'redis_locking' => ini_get('redis.session.locking_enabled'),
+            'redis_lock_retries' => ini_get('redis.session.lock_retries'),
             'session_start_ms' => $startMs,
         ]);
     }

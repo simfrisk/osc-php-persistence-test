@@ -33,6 +33,8 @@ if [ "$SESSION_INI_MODE" = "redis" ] && [ -n "$VALKEY_HOST" ] && [ -n "$VALKEY_P
     echo "session.gc_maxlifetime = 86400"
     echo "session.use_strict_mode = 1"
     echo "redis.session.locking_enabled = 1"
+    echo "redis.session.lock_retries = 300"
+    echo "redis.session.lock_wait_time = 50000"
   } > "$INI"
   chmod 644 "$INI"
   echo "[setup] wrote $INI (values not printed)"
