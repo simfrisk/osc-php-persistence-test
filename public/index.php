@@ -27,6 +27,8 @@ function h(string $s): string
 /** Common cookie settings. The app is served over HTTPS on *.apps.osaas.io. */
 function session_cookie(string $name): void
 {
+    // Reject session ids the server did not issue (session fixation).
+    ini_set('session.use_strict_mode', '1');
     session_name($name);
     session_set_cookie_params([
         'lifetime' => 0,
@@ -50,6 +52,8 @@ function start_backend_session(string $backend): void
             ini_set('session.save_handler', 'redis');
             ini_set('session.save_path', Env::valkeySavePath('PHPSESS_'));
             ini_set('session.gc_maxlifetime', '86400');
+            // phpredis does not lock sessions by default. Turn it on if parallel requests write the session.
+            ini_set('redis.session.locking_enabled', '1');
             session_cookie('VKSESS');
             break;
         case 'ini':
@@ -72,7 +76,7 @@ try {
     }
 
     // Session tests: /{valkey|ini|pg}/login (POST user=...), /{...}/me, /{...}/logout
-    if (preg_match('#^/(valkey|ini|pg)/(login|me|logout)$#', $path, $m)) {
+    if (preg_match('#^/(valkey|ini|pg)/(login|me|logout|incr)$#', $path, $m)) {
         [$_, $backend, $action] = $m;
         $t0 = microtime(true);
         start_backend_session($backend);
@@ -89,6 +93,13 @@ try {
             // A value with a NUL byte, to prove binary-safe storage.
             $_SESSION['binary'] = "a\0b";
         }
+        if ($action === 'incr') {
+            // Read, wait, write: shows whether parallel requests lose updates (no session locking).
+            $n = (int) ($_SESSION['n'] ?? 0);
+            usleep(300000);
+            $_SESSION['n'] = $n + 1;
+            json_out(['backend' => $backend, 'n' => $_SESSION['n']]);
+        }
         if ($action === 'logout') {
             $_SESSION = [];
             session_destroy();
@@ -104,8 +115,11 @@ try {
             'user' => $_SESSION['user'] ?? null,
             'logged_in_at' => $_SESSION['logged_in_at'] ?? null,
             'login_host' => $_SESSION['login_host'] ?? null,
+            'n' => $_SESSION['n'] ?? 0,
             'binary_ok' => ($_SESSION['binary'] ?? null) === "a\0b",
             'served_by_host' => gethostname(),
+            'strict_mode' => ini_get('session.use_strict_mode'),
+            'redis_locking' => ini_get('redis.session.locking_enabled'),
             'session_start_ms' => $startMs,
         ]);
     }
