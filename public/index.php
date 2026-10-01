@@ -66,6 +66,11 @@ function start_backend_session(string $backend): void
 }
 
 try {
+    // The platform probes /healthz.
+    if ($path === '/healthz') {
+        json_out(['ok' => true]);
+    }
+
     // Session tests: /{valkey|ini|pg}/login (POST user=...), /{...}/me, /{...}/logout
     if (preg_match('#^/(valkey|ini|pg)/(login|me|logout)$#', $path, $m)) {
         [$_, $backend, $action] = $m;
