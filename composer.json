@@ -1,0 +1,13 @@
+{
+  "name": "simfrisk/osc-php-persistence-test",
+  "description": "Example: keep PHP sessions and uploads across restarts on an Eyevinn OSC PHP My App (Valkey, Postgres, MinIO)",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.1",
+    "aws/aws-sdk-php": "^3.300"
+  },
+  "autoload": {
+    "psr-4": { "App\\": "src/" }
+  }
+}
